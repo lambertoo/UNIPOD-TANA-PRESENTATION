@@ -10,9 +10,11 @@ if project_root not in sys.path:
 
 from fastapi import FastAPI, HTTPException, Query, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, StreamingResponse
 import asyncio
 import json
+
+from backend.frame_buffer import read_latest_frame_jpeg, is_camera_active
 
 from backend.config import load_config
 from backend.database import (
@@ -207,6 +209,31 @@ async def check_health_status():
         }
     finally:
         connection.close()
+
+
+@app.get("/api/camera/stream")
+async def stream_camera_feed():
+    async def generate_mjpeg_frames():
+        while True:
+            frame_jpeg = read_latest_frame_jpeg()
+            if frame_jpeg is not None:
+                yield (
+                    b"--frame\r\n"
+                    b"Content-Type: image/jpeg\r\n\r\n"
+                    + frame_jpeg
+                    + b"\r\n"
+                )
+            await asyncio.sleep(0.066)
+
+    return StreamingResponse(
+        generate_mjpeg_frames(),
+        media_type="multipart/x-mixed-replace; boundary=frame",
+    )
+
+
+@app.get("/api/camera/status")
+async def get_camera_status():
+    return {"is_active": is_camera_active()}
 
 
 @app.websocket("/ws/events")

@@ -1,7 +1,6 @@
-pyrealsense2>=2.55.0
-tensorflow>=2.16.0
+pyrealsense2-macosx>=2.56.0; sys_platform == "darwin"
+pyrealsense2>=2.55.0; sys_platform != "darwin"
 opencv-python>=4.10.0
-mtcnn>=1.0.0
 fastapi>=0.115.0
 uvicorn[standard]>=0.32.0
 websockets>=13.0

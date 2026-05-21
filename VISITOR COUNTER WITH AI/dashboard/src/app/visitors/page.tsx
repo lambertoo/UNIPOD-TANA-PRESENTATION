@@ -1,9 +1,17 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import { fetchVisitors } from "@/lib/api";
+import { getVisitorPhotoUrl } from "@/lib/api";
 import type { Visitor } from "@/lib/api";
+import { SkeletonRow } from "@/components/skeleton-card";
+import {
+  Search,
+  Users,
+  ChevronRight,
+  User,
+} from "lucide-react";
 
 const POLL_INTERVAL_MS = 10000;
 
@@ -19,19 +27,38 @@ function formatDateTime(isoTimestamp: string): string {
 function StatusBadge({ isInside }: { isInside: boolean }) {
   return (
     <span
-      className={`text-xs px-2 py-0.5 rounded-full font-medium ${
+      className={`inline-flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-full font-medium border ${
         isInside
-          ? "bg-green-500/20 text-green-300"
-          : "bg-gray-500/20 text-gray-400"
+          ? "bg-accent-green/10 text-accent-green border-accent-green/20"
+          : "bg-surface-elevated/50 text-text-muted border-border-subtle"
       }`}
     >
+      <span className={`w-1.5 h-1.5 rounded-full ${isInside ? "bg-accent-green" : "bg-text-muted"}`} />
       {isInside ? "Inside" : "Outside"}
+    </span>
+  );
+}
+
+function GenderBadge({ gender }: { gender: string }) {
+  const isMale = gender.toLowerCase() === "male";
+  return (
+    <span
+      className={`inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full font-medium border ${
+        isMale
+          ? "bg-accent-blue/10 text-accent-blue border-accent-blue/20"
+          : "bg-accent-pink/10 text-accent-pink border-accent-pink/20"
+      }`}
+    >
+      <User className="w-3 h-3" />
+      {gender}
     </span>
   );
 }
 
 export default function VisitorsPage() {
   const [visitors, setVisitors] = useState<Visitor[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [searchQuery, setSearchQuery] = useState("");
   const router = useRouter();
 
   const refreshVisitorsList = useCallback(async () => {
@@ -40,6 +67,8 @@ export default function VisitorsPage() {
       setVisitors(fetchedVisitors);
     } catch {
       // API not available yet
+    } finally {
+      setIsLoading(false);
     }
   }, []);
 
@@ -49,89 +78,144 @@ export default function VisitorsPage() {
     return () => clearInterval(pollTimer);
   }, [refreshVisitorsList]);
 
-  return (
-    <div className="space-y-6">
-      <h1 className="text-2xl font-bold">Visitors</h1>
+  const filteredVisitors = useMemo(() => {
+    if (!searchQuery.trim()) return visitors;
+    const q = searchQuery.toLowerCase();
+    return visitors.filter(
+      (v) =>
+        v.id.toString().includes(q) ||
+        v.gender.toLowerCase().includes(q)
+    );
+  }, [visitors, searchQuery]);
 
-      <div className="bg-gray-900 rounded-xl shadow-lg overflow-hidden">
-        <table className="w-full">
-          <thead>
-            <tr className="border-b border-gray-800">
-              <th className="text-left px-4 py-3 text-sm font-medium text-gray-400">
-                Photo
-              </th>
-              <th className="text-left px-4 py-3 text-sm font-medium text-gray-400">
-                ID
-              </th>
-              <th className="text-left px-4 py-3 text-sm font-medium text-gray-400">
-                Gender
-              </th>
-              <th className="text-left px-4 py-3 text-sm font-medium text-gray-400">
-                First Seen
-              </th>
-              <th className="text-left px-4 py-3 text-sm font-medium text-gray-400">
-                Last Seen
-              </th>
-              <th className="text-left px-4 py-3 text-sm font-medium text-gray-400">
-                Status
-              </th>
-            </tr>
-          </thead>
-          <tbody>
-            {visitors.map((visitor) => (
-              <tr
-                key={visitor.id}
-                onClick={() => router.push(`/visitors/${visitor.id}`)}
-                className="border-b border-gray-800/50 hover:bg-gray-800/50 cursor-pointer transition-colors"
-              >
-                <td className="px-4 py-3">
-                  <div className="w-10 h-10 rounded-full bg-gray-700 overflow-hidden">
-                    {visitor.photo_filename && (
-                      <img
-                        src={`/api/photos/${visitor.photo_filename}`}
-                        alt={`Visitor ${visitor.id}`}
-                        className="w-full h-full object-cover"
-                      />
-                    )}
-                  </div>
-                </td>
-                <td className="px-4 py-3 text-sm font-mono text-gray-200">
-                  #{visitor.id}
-                </td>
-                <td className="px-4 py-3">
-                  <span
-                    className={`text-xs px-2 py-0.5 rounded-full font-medium ${
-                      visitor.gender.toLowerCase() === "male"
-                        ? "bg-blue-500/20 text-blue-300"
-                        : "bg-pink-500/20 text-pink-300"
-                    }`}
+  const insideCount = visitors.filter((v) => v.is_inside).length;
+
+  return (
+    <div className="space-y-6 max-w-6xl">
+      {/* Header */}
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+        <div>
+          <div className="flex items-center gap-3">
+            <h1 className="text-2xl font-bold text-text-primary tracking-tight">
+              Visitors
+            </h1>
+            <span className="px-2.5 py-0.5 rounded-full bg-surface border border-border-subtle text-xs font-medium text-text-secondary">
+              {visitors.length} total
+            </span>
+          </div>
+          <p className="text-sm text-text-secondary mt-1">
+            {insideCount} currently inside · {visitors.length - insideCount} outside
+          </p>
+        </div>
+
+        {/* Search */}
+        <div className="relative w-full sm:w-72">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-text-muted" />
+          <input
+            type="text"
+            placeholder="Search by ID or gender..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            className="w-full pl-9 pr-4 py-2 rounded-lg bg-surface border border-border-subtle text-sm text-text-primary placeholder:text-text-muted focus:outline-none focus:ring-2 focus:ring-accent-blue/20 focus:border-accent-blue/30 transition-all"
+          />
+        </div>
+      </div>
+
+      {/* Table */}
+      <div className="bg-surface rounded-xl shadow-sm border border-border-subtle overflow-hidden">
+        <div className="overflow-x-auto">
+          <table className="w-full">
+            <thead>
+              <tr className="border-b border-border-subtle bg-surface-elevated/20">
+                <th className="text-left px-4 py-3 text-xs font-semibold text-text-muted uppercase tracking-wider">
+                  Photo
+                </th>
+                <th className="text-left px-4 py-3 text-xs font-semibold text-text-muted uppercase tracking-wider">
+                  ID
+                </th>
+                <th className="text-left px-4 py-3 text-xs font-semibold text-text-muted uppercase tracking-wider">
+                  Gender
+                </th>
+                <th className="text-left px-4 py-3 text-xs font-semibold text-text-muted uppercase tracking-wider hidden md:table-cell">
+                  First Seen
+                </th>
+                <th className="text-left px-4 py-3 text-xs font-semibold text-text-muted uppercase tracking-wider hidden lg:table-cell">
+                  Last Seen
+                </th>
+                <th className="text-left px-4 py-3 text-xs font-semibold text-text-muted uppercase tracking-wider">
+                  Status
+                </th>
+                <th className="px-4 py-3 w-10" />
+              </tr>
+            </thead>
+            <tbody>
+              {isLoading ? (
+                <>
+                  <SkeletonRow cols={7} />
+                  <SkeletonRow cols={7} />
+                  <SkeletonRow cols={7} />
+                  <SkeletonRow cols={7} />
+                </>
+              ) : (
+                filteredVisitors.map((visitor) => (
+                  <tr
+                    key={visitor.id}
+                    onClick={() => router.push(`/visitors/${visitor.id}`)}
+                    className="border-b border-border-subtle hover:bg-surface-elevated/30 cursor-pointer transition-colors group"
                   >
-                    {visitor.gender}
-                  </span>
-                </td>
-                <td className="px-4 py-3 text-sm text-gray-400">
-                  {formatDateTime(visitor.first_seen_at)}
-                </td>
-                <td className="px-4 py-3 text-sm text-gray-400">
-                  {formatDateTime(visitor.last_seen_at)}
-                </td>
-                <td className="px-4 py-3">
-                  <StatusBadge isInside={visitor.is_inside} />
-                </td>
-              </tr>
-            ))}
-            {visitors.length === 0 && (
-              <tr>
-                <td
-                  colSpan={6}
-                  className="px-4 py-8 text-center text-gray-500 text-sm"
-                >
-                  No visitors recorded yet
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
+                    <td className="px-4 py-3">
+                      <div className="w-10 h-10 rounded-full bg-surface-elevated overflow-hidden border border-border-subtle">
+                        <img
+                          src={getVisitorPhotoUrl(visitor.id)}
+                          alt={`Visitor ${visitor.id}`}
+                          className="w-full h-full object-cover"
+                          onError={(e) => {
+                            (e.target as HTMLImageElement).style.display = "none";
+                          }}
+                        />
+                      </div>
+                    </td>
+                    <td className="px-4 py-3 text-sm font-mono text-text-primary">
+                      #{visitor.id}
+                    </td>
+                    <td className="px-4 py-3">
+                      <GenderBadge gender={visitor.gender} />
+                    </td>
+                    <td className="px-4 py-3 text-sm text-text-secondary hidden md:table-cell">
+                      {formatDateTime(visitor.first_seen_at)}
+                    </td>
+                    <td className="px-4 py-3 text-sm text-text-secondary hidden lg:table-cell">
+                      {formatDateTime(visitor.last_seen_at)}
+                    </td>
+                    <td className="px-4 py-3">
+                      <StatusBadge isInside={visitor.is_inside} />
+                    </td>
+                    <td className="px-4 py-3">
+                      <ChevronRight className="w-4 h-4 text-text-muted opacity-0 group-hover:opacity-100 transition-opacity" />
+                    </td>
+                  </tr>
+                ))
+              )}
+              {!isLoading && filteredVisitors.length === 0 && (
+                <tr>
+                  <td
+                    colSpan={7}
+                    className="px-4 py-12 text-center"
+                  >
+                    <div className="flex flex-col items-center">
+                      <div className="w-10 h-10 rounded-full bg-surface-elevated flex items-center justify-center mb-3">
+                        <Users className="w-5 h-5 text-text-muted" />
+                      </div>
+                      <p className="text-text-muted text-sm">
+                        {searchQuery ? "No visitors match your search" : "No visitors recorded yet"}
+                      </p>
+                    </div>
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
       </div>
     </div>
   );

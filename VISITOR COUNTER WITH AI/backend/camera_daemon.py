@@ -7,7 +7,12 @@ from datetime import datetime
 
 import numpy as np
 import cv2
-import pyrealsense2 as rs
+
+try:
+    import pyrealsense2 as rs
+    REALSENSE_AVAILABLE = True
+except ImportError:
+    REALSENSE_AVAILABLE = False
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -19,6 +24,7 @@ from backend.database import (
     record_crossing_event,
     find_all_visitor_embeddings,
 )
+from backend.frame_buffer import update_shared_frame
 from backend.models.face_detector import FaceDetector
 from backend.models.face_embedder import FaceEmbedder
 from backend.models.gender_classifier import GenderClassifier
@@ -36,6 +42,14 @@ def handle_shutdown_signal(signal_number, stack_frame):
 def parse_command_line_arguments():
     argument_parser = argparse.ArgumentParser(description="Visitor Counter Camera Daemon")
     argument_parser.add_argument("--debug", action="store_true", default=False)
+    argument_parser.add_argument(
+        "--webcam", action="store_true", default=False,
+        help="Use webcam instead of Intel RealSense (for testing)"
+    )
+    argument_parser.add_argument(
+        "--webcam-index", type=int, default=0,
+        help="Webcam device index"
+    )
     return argument_parser.parse_args()
 
 
@@ -117,8 +131,15 @@ def process_crossing_event(crossing_event, face_embedder, gender_classifier,
     crossing_direction = crossing_event["direction"]
     detection_confidence = face_data["confidence"]
 
-    face_embedding = face_embedder.extract_embedding(face_crop_rgb)
-    gender_prediction = gender_classifier.classify_gender(face_crop_rgb)
+    precomputed_embedding = face_data.get("embedding")
+    face_embedding = face_embedder.extract_embedding(
+        face_crop_rgb, precomputed_embedding=precomputed_embedding
+    )
+
+    precomputed_gender = face_data.get("gender")
+    gender_prediction = gender_classifier.classify_gender(
+        face_crop_rgb, precomputed_gender=precomputed_gender
+    )
     predicted_gender = gender_prediction["gender"]
     gender_confidence = gender_prediction["confidence"]
 
@@ -163,6 +184,51 @@ def process_crossing_event(crossing_event, face_embedder, gender_classifier,
     )
 
 
+def capture_frames_from_realsense(configuration):
+    realsense_pipeline, depth_to_color_aligner = configure_realsense_pipeline(
+        configuration["realsense"]
+    )
+    try:
+        while is_running:
+            raw_frames = realsense_pipeline.wait_for_frames()
+            aligned_frames = depth_to_color_aligner.process(raw_frames)
+
+            color_frame = aligned_frames.get_color_frame()
+            depth_frame = aligned_frames.get_depth_frame()
+
+            if not color_frame or not depth_frame:
+                continue
+
+            color_image = np.asanyarray(color_frame.get_data())
+            depth_image = np.asanyarray(depth_frame.get_data()).astype(np.uint16)
+            yield color_image, depth_image
+    finally:
+        realsense_pipeline.stop()
+
+
+def capture_frames_from_webcam(webcam_index, frame_width, frame_height):
+    webcam_capture = cv2.VideoCapture(webcam_index)
+    webcam_capture.set(cv2.CAP_PROP_FRAME_WIDTH, frame_width)
+    webcam_capture.set(cv2.CAP_PROP_FRAME_HEIGHT, frame_height)
+
+    if not webcam_capture.isOpened():
+        raise RuntimeError(f"Cannot open webcam at index {webcam_index}")
+
+    try:
+        while is_running:
+            read_success, color_image = webcam_capture.read()
+            if not read_success:
+                continue
+
+            simulated_depth_image = np.full(
+                (color_image.shape[0], color_image.shape[1]),
+                1000, dtype=np.uint16
+            )
+            yield color_image, simulated_depth_image
+    finally:
+        webcam_capture.release()
+
+
 def run_camera_daemon(command_line_args):
     global is_running
 
@@ -190,27 +256,29 @@ def run_camera_daemon(command_line_args):
         direction_threshold=configuration["crossing_line"]["direction_threshold"],
     )
 
-    realsense_pipeline, depth_to_color_aligner = configure_realsense_pipeline(
-        configuration["realsense"]
-    )
-
+    use_webcam = command_line_args.webcam or not REALSENSE_AVAILABLE
     is_debug_enabled = command_line_args.debug
+
+    if use_webcam:
+        if not REALSENSE_AVAILABLE:
+            print("pyrealsense2 not installed — falling back to webcam mode.")
+        else:
+            print("Webcam mode enabled via --webcam flag.")
+        frame_source = capture_frames_from_webcam(
+            command_line_args.webcam_index,
+            configuration["realsense"]["width"],
+            configuration["realsense"]["height"],
+        )
+    else:
+        print("Using Intel RealSense camera.")
+        frame_source = capture_frames_from_realsense(configuration)
 
     print("Camera daemon started. Press Ctrl+C to stop.")
 
     try:
-        while is_running:
-            raw_frames = realsense_pipeline.wait_for_frames()
-            aligned_frames = depth_to_color_aligner.process(raw_frames)
-
-            color_frame = aligned_frames.get_color_frame()
-            depth_frame = aligned_frames.get_depth_frame()
-
-            if not color_frame or not depth_frame:
-                continue
-
-            color_image = np.asanyarray(color_frame.get_data())
-            depth_image = np.asanyarray(depth_frame.get_data()).astype(np.uint16)
+        for color_image, depth_image in frame_source:
+            if not is_running:
+                break
 
             face_detections = face_detector.detect_faces(color_image)
 
@@ -228,9 +296,11 @@ def run_camera_daemon(command_line_args):
                     database_connection, configuration
                 )
 
+            crossing_line_y = configuration["crossing_line"]["y_position"]
+            update_shared_frame(color_image, face_detections, crossing_line_y)
+
             if is_debug_enabled:
                 debug_frame = color_image.copy()
-                crossing_line_y = configuration["crossing_line"]["y_position"]
                 debug_frame = draw_debug_overlay(
                     debug_frame, face_detections, crossing_line_y
                 )
@@ -241,7 +311,6 @@ def run_camera_daemon(command_line_args):
                     is_running = False
 
     finally:
-        realsense_pipeline.stop()
         database_connection.close()
         if is_debug_enabled:
             cv2.destroyAllWindows()

@@ -34,6 +34,13 @@ export type VisitorDetail = Visitor & {
   events: CrossingEvent[];
 };
 
+export type HealthStatus = {
+  status: string;
+  database_size_mb: number;
+  total_visitors: number;
+  uptime_seconds: number;
+};
+
 export async function fetchVisitorStats(): Promise<VisitorStats> {
   const response = await fetch("/api/stats");
   return response.json();
@@ -67,4 +74,13 @@ export async function fetchHourlyTraffic(
   const queryString = date ? `?date=${date}` : "";
   const response = await fetch(`/api/stats/hourly${queryString}`);
   return response.json();
+}
+
+export async function fetchHealth(): Promise<HealthStatus> {
+  const response = await fetch("/api/health");
+  return response.json();
+}
+
+export function getVisitorPhotoUrl(visitorId: number): string {
+  return `/api/visitors/${visitorId}/photo`;
 }

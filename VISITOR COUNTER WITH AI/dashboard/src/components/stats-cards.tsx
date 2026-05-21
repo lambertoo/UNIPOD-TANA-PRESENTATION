@@ -1,32 +1,41 @@
 import type { VisitorStats } from "@/lib/api";
+import { Users, DoorOpen, Activity, UsersRound } from "lucide-react";
 
 interface StatsCardsProps {
   stats: VisitorStats | null;
 }
 
-const CARD_STYLES = [
+const CARD_CONFIG = [
   {
     label: "Currently Inside",
-    colorClass: "border-blue-500 bg-blue-500/10",
-    numberClass: "text-blue-400",
+    icon: DoorOpen,
+    colorClass: "border-accent-blue bg-accent-blue/5",
+    numberClass: "text-accent-blue",
+    iconClass: "text-accent-blue",
     getValue: (s: VisitorStats) => s.total_inside,
   },
   {
     label: "Total Visitors",
-    colorClass: "border-purple-500 bg-purple-500/10",
-    numberClass: "text-purple-400",
+    icon: Users,
+    colorClass: "border-accent-purple bg-accent-purple/5",
+    numberClass: "text-accent-purple",
+    iconClass: "text-accent-purple",
     getValue: (s: VisitorStats) => s.total_visitors,
   },
   {
     label: "Events Today",
-    colorClass: "border-green-500 bg-green-500/10",
-    numberClass: "text-green-400",
+    icon: Activity,
+    colorClass: "border-accent-green bg-accent-green/5",
+    numberClass: "text-accent-green",
+    iconClass: "text-accent-green",
     getValue: (s: VisitorStats) => s.total_events_today,
   },
   {
     label: "Male / Female",
-    colorClass: "border-orange-500 bg-orange-500/10",
-    numberClass: "text-orange-400",
+    icon: UsersRound,
+    colorClass: "border-accent-orange bg-accent-orange/5",
+    numberClass: "text-accent-orange",
+    iconClass: "text-accent-orange",
     getValue: (s: VisitorStats) =>
       `${s.gender_distribution.male} / ${s.gender_distribution.female}`,
   },
@@ -34,18 +43,28 @@ const CARD_STYLES = [
 
 export function StatsCards({ stats }: StatsCardsProps) {
   return (
-    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-      {CARD_STYLES.map((card) => (
-        <div
-          key={card.label}
-          className={`rounded-xl border-l-4 p-5 shadow-lg bg-gray-900 ${card.colorClass}`}
-        >
-          <p className="text-sm text-gray-400 mb-1">{card.label}</p>
-          <p className={`text-3xl font-bold ${card.numberClass}`}>
-            {stats ? card.getValue(stats) : "—"}
-          </p>
-        </div>
-      ))}
+    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 stagger-children">
+      {CARD_CONFIG.map((card) => {
+        const Icon = card.icon;
+        return (
+          <div
+            key={card.label}
+            className={`rounded-xl border-l-4 p-5 shadow-sm bg-surface border border-border-subtle ${card.colorClass}`}
+          >
+            <div className="flex items-center justify-between mb-3">
+              <p className="text-sm text-text-secondary font-medium">
+                {card.label}
+              </p>
+              <div className={`p-1.5 rounded-md bg-surface-elevated/50`}>
+                <Icon className={`w-4 h-4 ${card.iconClass}`} />
+              </div>
+            </div>
+            <p className={`text-3xl font-bold tracking-tight ${card.numberClass}`}>
+              {stats ? card.getValue(stats) : "—"}
+            </p>
+          </div>
+        );
+      })}
     </div>
   );
 }
