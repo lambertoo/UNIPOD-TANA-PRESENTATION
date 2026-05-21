@@ -1,0 +1,12 @@
+__pycache__/
+*.pyc
+*.pyo
+.env
+.env.local
+data/
+*.db
+node_modules/
+.next/
+next-env.d.ts
+.DS_Store
+*.h5

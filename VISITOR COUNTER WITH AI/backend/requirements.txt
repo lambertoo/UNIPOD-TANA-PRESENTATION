@@ -1,0 +1,10 @@
+pyrealsense2>=2.55.0
+tensorflow>=2.16.0
+opencv-python>=4.10.0
+mtcnn>=1.0.0
+fastapi>=0.115.0
+uvicorn[standard]>=0.32.0
+websockets>=13.0
+numpy>=1.26.0
+scipy>=1.14.0
+pyyaml>=6.0

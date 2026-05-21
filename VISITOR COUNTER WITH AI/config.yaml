@@ -1,0 +1,23 @@
+realsense:
+  width: 640
+  height: 480
+  fps: 30
+
+crossing_line:
+  y_position: 240
+  direction_threshold: 20
+
+face_detection:
+  confidence_threshold: 0.85
+  min_face_size: 40
+
+re_identification:
+  similarity_threshold: 0.7
+  embedding_dimension: 512
+
+gender_classification:
+  confidence_threshold: 0.6
+
+paths:
+  database: data/visitor_counter.db
+  photos: data/photos
