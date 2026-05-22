@@ -34,7 +34,7 @@ def load_config():
 def _validate_required_sections(configuration):
     required_sections = [
         "realsense",
-        "crossing_line",
+        "crossing_zones",
         "face_detection",
         "re_identification",
         "gender_classification",
@@ -51,10 +51,11 @@ def _validate_required_sections(configuration):
         if key not in configuration["realsense"]:
             raise ValueError(f"Missing realsense config key: {key}")
 
-    crossing_line_required_keys = ["y_position", "direction_threshold"]
-    for key in crossing_line_required_keys:
-        if key not in configuration["crossing_line"]:
-            raise ValueError(f"Missing crossing_line config key: {key}")
+    if "door_zone" not in configuration["crossing_zones"]:
+        raise ValueError("Missing crossing_zones config key: door_zone")
+    for key in ["x", "y", "width", "height"]:
+        if key not in configuration["crossing_zones"]["door_zone"]:
+            raise ValueError(f"Missing door_zone config key: {key}")
 
     face_detection_required_keys = ["confidence_threshold", "min_face_size"]
     for key in face_detection_required_keys:

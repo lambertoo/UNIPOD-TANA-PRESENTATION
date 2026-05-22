@@ -10,7 +10,7 @@ if project_root not in sys.path:
 
 from fastapi import FastAPI, HTTPException, Query, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.responses import FileResponse, StreamingResponse, Response
 import asyncio
 import json
 
@@ -38,8 +38,8 @@ app = FastAPI(title="Visitor Counter API")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000"],
-    allow_credentials=True,
+    allow_origins=["*"],
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -213,6 +213,9 @@ async def check_health_status():
 
 @app.get("/api/camera/stream")
 async def stream_camera_feed():
+    if not is_camera_active():
+        raise HTTPException(status_code=503, detail="Camera is not active")
+
     async def generate_mjpeg_frames():
         while True:
             frame_jpeg = read_latest_frame_jpeg()
@@ -229,6 +232,31 @@ async def stream_camera_feed():
         generate_mjpeg_frames(),
         media_type="multipart/x-mixed-replace; boundary=frame",
     )
+
+
+@app.get("/api/camera/frame")
+async def get_camera_frame():
+    frame_jpeg = read_latest_frame_jpeg()
+    if frame_jpeg is None:
+        raise HTTPException(status_code=503, detail="Camera is not active")
+    return Response(content=frame_jpeg, media_type="image/jpeg")
+
+
+@app.post("/api/camera/snapshot")
+async def capture_reference_snapshot():
+    frame_jpeg = read_latest_frame_jpeg()
+    if frame_jpeg is None:
+        raise HTTPException(status_code=503, detail="Camera is not active")
+
+    snapshot_filename = f"reference_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}.jpg"
+    snapshot_path = Path(photos_directory) / snapshot_filename
+    snapshot_path.write_bytes(frame_jpeg)
+
+    return {
+        "filename": snapshot_filename,
+        "path": str(snapshot_path),
+        "size_bytes": len(frame_jpeg),
+    }
 
 
 @app.get("/api/camera/status")

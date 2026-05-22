@@ -1,60 +1,134 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
+import { Video, Radio, AlertCircle } from "lucide-react";
+
+const STATUS_POLL_INTERVAL_MS = 3000;
+const FRAME_POLL_INTERVAL_MS = 100;
 
 export default function CameraFeed() {
   const [isCameraActive, setIsCameraActive] = useState(false);
+  const [frameUrl, setFrameUrl] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const frameObjectUrlRef = useRef<string | null>(null);
 
+  // Poll camera status
   useEffect(() => {
     const checkCameraStatus = async () => {
       try {
         const response = await fetch("/api/camera/status");
+        if (!response.ok) {
+          setIsCameraActive(false);
+          setError("API server returned an error");
+          return;
+        }
         const data = await response.json();
-        setIsCameraActive(data.is_active);
+        setIsCameraActive(data.is_active === true);
+        if (data.is_active) {
+          setError(null);
+        } else {
+          setError("Camera daemon is not running or RealSense is not connected");
+        }
       } catch {
         setIsCameraActive(false);
+        setError("Cannot reach API server — is it running on port 8000?");
       }
     };
 
     checkCameraStatus();
-    const interval = setInterval(checkCameraStatus, 3000);
+    const interval = setInterval(checkCameraStatus, STATUS_POLL_INTERVAL_MS);
     return () => clearInterval(interval);
   }, []);
 
+  // Poll frames when camera is active
+  const fetchFrame = useCallback(async () => {
+    try {
+      const response = await fetch("/api/camera/frame");
+      if (!response.ok) {
+        if (response.status === 503) {
+          setIsCameraActive(false);
+          setError("Camera went offline");
+        }
+        return;
+      }
+      const blob = await response.blob();
+
+      // Revoke previous object URL to avoid memory leaks
+      if (frameObjectUrlRef.current) {
+        URL.revokeObjectURL(frameObjectUrlRef.current);
+      }
+      const url = URL.createObjectURL(blob);
+      frameObjectUrlRef.current = url;
+      setFrameUrl(url);
+    } catch {
+      // Network error — keep previous frame, status poll will catch offline state
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!isCameraActive) {
+      setFrameUrl(null);
+      if (frameObjectUrlRef.current) {
+        URL.revokeObjectURL(frameObjectUrlRef.current);
+        frameObjectUrlRef.current = null;
+      }
+      return;
+    }
+
+    // Fetch immediately when camera becomes active
+    fetchFrame();
+    const interval = setInterval(fetchFrame, FRAME_POLL_INTERVAL_MS);
+    return () => clearInterval(interval);
+  }, [isCameraActive, fetchFrame]);
+
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      if (frameObjectUrlRef.current) {
+        URL.revokeObjectURL(frameObjectUrlRef.current);
+      }
+    };
+  }, []);
+
   return (
-    <div className="bg-gray-800/50 rounded-xl p-4">
-      <h3 className="text-lg font-semibold mb-3">Live Camera Feed</h3>
-      {isCameraActive ? (
+    <div className="bg-surface rounded-xl p-4 shadow-sm border border-border-subtle">
+      <div className="flex items-center gap-2 mb-3">
+        <Video className="w-4 h-4 text-text-secondary" />
+        <h2 className="text-base font-semibold text-text-primary">
+          Live Camera Feed
+        </h2>
+        {isCameraActive && (
+          <span className="ml-auto inline-flex items-center gap-1.5 bg-accent-red/10 rounded-full px-2.5 py-1 border border-accent-red/20">
+            <span className="w-1.5 h-1.5 rounded-full bg-accent-red animate-pulse" />
+            <span className="text-[11px] text-accent-red font-medium">LIVE</span>
+          </span>
+        )}
+      </div>
+
+      {isCameraActive && frameUrl ? (
         <div className="relative">
           <img
-            src="http://localhost:8000/api/camera/stream"
+            src={frameUrl}
             alt="Live camera feed"
-            className="w-full rounded-lg"
+            className="w-full rounded-lg border border-border-subtle"
           />
-          <div className="absolute top-2 right-2 flex items-center gap-1.5 bg-black/60 rounded-full px-3 py-1">
-            <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse" />
-            <span className="text-xs text-red-400 font-medium">LIVE</span>
-          </div>
         </div>
       ) : (
-        <div className="flex flex-col items-center justify-center h-64 bg-gray-900/50 rounded-lg border border-gray-700 border-dashed">
-          <svg
-            className="w-12 h-12 text-gray-600 mb-3"
-            fill="none"
-            stroke="currentColor"
-            viewBox="0 0 24 24"
-          >
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              strokeWidth={1.5}
-              d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"
-            />
-          </svg>
-          <p className="text-gray-500 text-sm">Camera offline</p>
-          <p className="text-gray-600 text-xs mt-1">
-            Start the camera daemon to see live feed
-          </p>
+        <div className="flex flex-col items-center justify-center h-64 bg-surface-elevated/30 rounded-lg border border-border-subtle border-dashed">
+          <div className="w-12 h-12 rounded-full bg-surface-elevated flex items-center justify-center mb-3">
+            <Video className="w-6 h-6 text-text-muted" />
+          </div>
+          <p className="text-text-muted text-sm">Camera offline</p>
+          {error ? (
+            <div className="flex items-center gap-1.5 mt-2 text-text-muted/80 text-xs max-w-xs text-center px-4">
+              <AlertCircle className="w-3 h-3 flex-shrink-0" />
+              {error}
+            </div>
+          ) : (
+            <p className="text-text-muted/70 text-xs mt-1">
+              Start the camera daemon to see live feed
+            </p>
+          )}
         </div>
       )}
     </div>

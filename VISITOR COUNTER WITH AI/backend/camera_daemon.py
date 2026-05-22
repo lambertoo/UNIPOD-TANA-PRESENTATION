@@ -57,15 +57,18 @@ def configure_realsense_pipeline(realsense_config):
     pipeline = rs.pipeline()
     stream_configuration = rs.config()
 
-    frame_width = realsense_config["width"]
-    frame_height = realsense_config["height"]
+    color_width = realsense_config["width"]
+    color_height = realsense_config["height"]
     frame_rate = realsense_config["fps"]
 
     stream_configuration.enable_stream(
-        rs.stream.color, frame_width, frame_height, rs.format.bgr8, frame_rate
+        rs.stream.color, color_width, color_height, rs.format.bgr8, frame_rate
     )
+
+    depth_width = min(color_width, 1280)
+    depth_height = min(color_height, 720)
     stream_configuration.enable_stream(
-        rs.stream.depth, frame_width, frame_height, rs.format.z16, frame_rate
+        rs.stream.depth, depth_width, depth_height, rs.format.z16, frame_rate
     )
 
     pipeline.start(stream_configuration)
@@ -131,9 +134,9 @@ def process_crossing_event(crossing_event, face_embedder, gender_classifier,
     crossing_direction = crossing_event["direction"]
     detection_confidence = face_data["confidence"]
 
-    precomputed_embedding = face_data.get("embedding")
+    face_aligned = face_data.get("face_aligned")
     face_embedding = face_embedder.extract_embedding(
-        face_crop_rgb, precomputed_embedding=precomputed_embedding
+        face_crop_rgb, face_aligned=face_aligned
     )
 
     precomputed_gender = face_data.get("gender")
@@ -251,9 +254,10 @@ def run_camera_daemon(command_line_args):
         confidence_threshold=configuration["gender_classification"]["confidence_threshold"],
     )
     centroid_tracker = CentroidTracker()
+    zones_config = configuration["crossing_zones"]
     crossing_detector = CrossingDetector(
-        crossing_line_y=configuration["crossing_line"]["y_position"],
-        direction_threshold=configuration["crossing_line"]["direction_threshold"],
+        door_zone=zones_config["door_zone"],
+        cooldown_seconds=zones_config.get("cooldown_seconds", 15),
     )
 
     use_webcam = command_line_args.webcam or not REALSENSE_AVAILABLE
@@ -282,6 +286,10 @@ def run_camera_daemon(command_line_args):
 
             face_detections = face_detector.detect_faces(color_image)
 
+            for detection in face_detections:
+                gender_result = gender_classifier.classify_gender(detection["face_crop"])
+                detection["gender"] = gender_result
+
             tracked_objects_update = centroid_tracker.update(face_detections, depth_image)
 
             crossing_events = crossing_detector.detect_crossings(tracked_objects_update)
@@ -296,14 +304,10 @@ def run_camera_daemon(command_line_args):
                     database_connection, configuration
                 )
 
-            crossing_line_y = configuration["crossing_line"]["y_position"]
-            update_shared_frame(color_image, face_detections, crossing_line_y)
+            update_shared_frame(color_image, face_detections, zones_config)
 
             if is_debug_enabled:
                 debug_frame = color_image.copy()
-                debug_frame = draw_debug_overlay(
-                    debug_frame, face_detections, crossing_line_y
-                )
                 cv2.imshow("Visitor Counter Debug", debug_frame)
 
                 pressed_key = cv2.waitKey(1) & 0xFF

@@ -1,51 +1,62 @@
+import time
+
+
 class CrossingDetector:
-    def __init__(self, crossing_line_y=240, direction_threshold=20):
-        self.crossing_line_y = crossing_line_y
-        self.direction_threshold = direction_threshold
-        self.already_crossed_ids = set()
+    def __init__(self, door_zone, cooldown_seconds=15):
+        self.door_zone = door_zone
+        self.cooldown_seconds = cooldown_seconds
+
+        self.object_zone_history = {}
+        self.last_event_time_by_id = {}
+
+    def _point_in_door_zone(self, x, y):
+        dz = self.door_zone
+        return (dz["x"] <= x <= dz["x"] + dz["width"] and
+                dz["y"] <= y <= dz["y"] + dz["height"])
+
+    def _get_zone(self, centroid):
+        x, y = centroid
+        if self._point_in_door_zone(x, y):
+            return "door"
+        return "room"
 
     def detect_crossings(self, tracked_objects_update):
         crossing_events = []
+        current_time = time.time()
+
+        active_ids = set(tracked_objects_update.keys())
 
         for object_id, object_data in tracked_objects_update.items():
-            current_centroid = object_data.get("centroid")
-            previous_centroid = object_data.get("previous_centroid")
-
-            if current_centroid is None or previous_centroid is None:
+            centroid = object_data.get("centroid")
+            if centroid is None:
                 continue
 
-            current_y = current_centroid[1]
-            previous_y = previous_centroid[1]
-
-            crossed_downward = previous_y < self.crossing_line_y and current_y >= self.crossing_line_y
-            crossed_upward = previous_y > self.crossing_line_y and current_y <= self.crossing_line_y
-
-            if not crossed_downward and not crossed_upward:
+            current_zone = self._get_zone(centroid)
+            if current_zone is None:
                 continue
 
-            if object_id in self.already_crossed_ids:
+            if object_id not in self.object_zone_history:
+                self.object_zone_history[object_id] = current_zone
                 continue
 
-            current_depth = object_data.get("depth", 0.0)
-            previous_depth = object_data.get("previous_depth", 0.0)
+            previous_zone = self.object_zone_history[object_id]
+            self.object_zone_history[object_id] = current_zone
 
-            if current_depth is not None and previous_depth is not None:
-                depth_change = current_depth - previous_depth
+            if previous_zone == current_zone:
+                continue
+
+            last_event = self.last_event_time_by_id.get(object_id, 0)
+            if current_time - last_event < self.cooldown_seconds:
+                continue
+
+            if previous_zone == "door" and current_zone == "room":
+                direction = "enter"
+            elif previous_zone == "room" and current_zone == "door":
+                direction = "exit"
             else:
-                depth_change = 0.0
+                continue
 
-            if abs(depth_change) >= self.direction_threshold:
-                if depth_change < 0:
-                    direction = "enter"
-                else:
-                    direction = "exit"
-            else:
-                if current_y > previous_y:
-                    direction = "enter"
-                else:
-                    direction = "exit"
-
-            self.already_crossed_ids.add(object_id)
+            self.last_event_time_by_id[object_id] = current_time
 
             crossing_events.append({
                 "object_id": object_id,
@@ -53,7 +64,9 @@ class CrossingDetector:
                 "face_data": object_data.get("face_data"),
             })
 
-        return crossing_events
+        stale_ids = set(self.object_zone_history.keys()) - active_ids
+        for oid in stale_ids:
+            del self.object_zone_history[oid]
+            self.last_event_time_by_id.pop(oid, None)
 
-    def reset_crossed_id(self, object_id):
-        self.already_crossed_ids.discard(object_id)
+        return crossing_events

@@ -10,3 +10,5 @@ node_modules/
 next-env.d.ts
 .DS_Store
 *.h5
+*.tmp
+nohup.out

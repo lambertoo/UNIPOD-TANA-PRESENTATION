@@ -70,8 +70,10 @@ class CentroidTracker:
 
             new_face_data_list.append({
                 "face_crop": detection.get("face_crop"),
+                "face_aligned": detection.get("face_aligned"),
                 "bounding_box": bounding_box,
                 "confidence": detection.get("confidence", 0.0),
+                "gender": detection.get("gender"),
             })
 
         if len(self.tracked_objects) == 0:

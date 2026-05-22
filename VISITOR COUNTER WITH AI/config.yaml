@@ -1,19 +1,24 @@
 realsense:
-  width: 640
-  height: 480
+  width: 1920
+  height: 1080
   fps: 30
 
-crossing_line:
-  y_position: 240
-  direction_threshold: 20
+crossing_zones:
+  door_zone:
+    x: 0
+    y: 0
+    width: 700
+    height: 380
+  room_is_everything_else: true
+  cooldown_seconds: 15
 
 face_detection:
   confidence_threshold: 0.85
   min_face_size: 40
 
 re_identification:
-  similarity_threshold: 0.7
-  embedding_dimension: 512
+  similarity_threshold: 0.4
+  embedding_dimension: 128
 
 gender_classification:
   confidence_threshold: 0.6
